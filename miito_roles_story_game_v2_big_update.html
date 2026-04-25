@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Asterfall Grand One-File Edition</title>
+  <style>
+    :root{
+      --bg:#070b16;--bg2:#0e1630;--panel:#131d3a;--line:#384f88;--text:#eef4ff;--muted:#9fb0d7;
+      --ok:#22c55e;--warn:#f59e0b;--danger:#ef4444;--acc:#38bdf8;--r:14px;
+      --sh:0 8px 24px rgba(0,0,0,.35);
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:radial-gradient(circle at 20% 0,#1f2b52,#070b16 55%);font-family:Inter,system-ui,sans-serif;color:var(--text)}
+    .app{max-width:1320px;margin:0 auto;padding:12px;display:grid;gap:12px}
+    .top{position:sticky;top:8px;z-index:12;background:#0b1227de;border:1px solid var(--line);padding:10px;border-radius:var(--r);backdrop-filter:blur(8px);box-shadow:var(--sh)}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.between{justify-content:space-between}
+    .chip{background:#1d2e59;border:1px solid #4762a7;border-radius:999px;padding:4px 10px;font-size:12px}
+    .tabs{display:grid;grid-template-columns:repeat(9,minmax(0,1fr));gap:8px}
+    .tabs button,.btn{border:1px solid #4a65ab;background:#253666;color:var(--text);border-radius:10px;min-height:44px;padding:8px 10px;font-weight:700;cursor:pointer}
+    .btn.primary{background:linear-gradient(180deg,#7dd3fc,#38bdf8);border:none;color:#0c1528}
+    .btn.warn{background:linear-gradient(180deg,#fcd34d,#f59e0b);border:none;color:#111}
+    .btn.danger{background:linear-gradient(180deg,#fca5a5,#ef4444);border:none;color:#111}
+    .btn.ok{background:linear-gradient(180deg,#86efac,#22c55e);border:none;color:#111}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
+    .panel{background:linear-gradient(180deg,var(--panel),#0f1730);border:1px solid var(--line);border-radius:12px;padding:12px;box-shadow:var(--sh)}
+    .title{font-size:1.3rem;font-weight:800;margin:2px 0 10px}
+    .small{font-size:12px;color:var(--muted)}
+    .grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+    .card{background:#101a35;border:1px solid #3a5290;border-radius:12px;padding:10px}
+    input,select,textarea{width:100%;min-height:42px;border-radius:9px;border:1px solid #4361a6;background:#0d162f;color:var(--text);padding:8px}
+    .bar{height:10px;border-radius:999px;background:#0a1228;border:1px solid #31487f;overflow:hidden}
+    .fill{height:100%;background:linear-gradient(90deg,#4ade80,#22c55e)}.fill.en{background:linear-gradient(90deg,#f59e0b,#fcd34d)}.fill.xp{background:linear-gradient(90deg,#60a5fa,#38bdf8)}.fill.fr{background:linear-gradient(90deg,#f472b6,#fb7185)}
+    .canvasWrap{position:relative}
+    #scene{width:100%;height:auto;border-radius:12px;border:1px solid #3a5290;background:#0c1327}
+    .fx{position:absolute;inset:0;pointer-events:none}
+    .popup{position:absolute;font-weight:800;font-size:20px;text-shadow:0 0 6px #000;animation:up .9s linear forwards}
+    @keyframes up{from{transform:translateY(0);opacity:1}to{transform:translateY(-36px);opacity:0}}
+    .mapSvg{width:100%;height:auto;border-radius:10px;border:1px solid #3b528f;background:#060d1f}
+    .heroHeader{display:flex;align-items:center;gap:8px;font-weight:700}
+    .icon{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.2)}
+    details>summary{cursor:pointer;font-weight:700}
+    @media (max-width:980px){.tabs{grid-template-columns:repeat(3,minmax(0,1fr))}}
+  </style>
+</head>
+<body>
+<div id="app" class="app"></div>
+<script>
+(() => {
+  'use strict';
+
+  const GAME_VERSION = 'Grand One-File v6';
+  const SAVE_KEY = 'asterfall_onefile_v6';
+  const LEGACY_KEYS = ['asterfall_onefile_v5','asterfall_save_v4','asterfall_save_v3','asterfall_save_v2'];
+  const SAVE_VERSION = 6;
+  const MAX_LEVEL = 30;
+  const uid = () => Math.random().toString(36).slice(2, 10);
+  const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+
+  const ROLES = {
+    sword:{name:'Schwertheld',icon:'⚔️',color:'#ef4444',base:{hp:130,atk:20,def:12,mag:6,heal:6,crit:11,en:36,spd:10},passive:'Slash +10%',skills:[{id:'slash',n:'Slash',t:'attack',cost:4,p:1.3,fx:'slash'},{id:'cross',n:'Kreuzhieb',t:'attack',cost:10,p:2.1,fx:'slash'},{id:'guard',n:'Wachstellung',t:'buffDef',cost:6,p:.30,fx:'shield'}]},
+    mage:{name:'Magier',icon:'🔮',color:'#a78bfa',base:{hp:92,atk:10,def:8,mag:25,heal:10,crit:12,en:52,spd:11},passive:'Magie +10%',skills:[{id:'fire',n:'Feuerball',t:'attack',cost:7,p:1.75,fx:'fire'},{id:'bolt',n:'Blitz',t:'attack',cost:9,p:2.0,fx:'bolt'},{id:'focus',n:'Fokus',t:'energy',cost:0,p:.35,fx:'spark'}]},
+    healer:{name:'Heiler',icon:'💠',color:'#34d399',base:{hp:100,atk:9,def:9,mag:17,heal:24,crit:8,en:54,spd:9},passive:'Heal +15%',skills:[{id:'heal',n:'Lichtheilung',t:'heal',cost:7,p:1.45,fx:'heal'},{id:'ray',n:'Heilstrahl',t:'attack',cost:10,p:1.65,fx:'holy'},{id:'ward',n:'Schutzkreis',t:'buffDef',cost:8,p:.24,fx:'shield'}]},
+    shadow:{name:'Schattenläufer',icon:'🗡️',color:'#6366f1',base:{hp:96,atk:22,def:8,mag:10,heal:7,crit:22,en:42,spd:14},passive:'Krit +',skills:[{id:'dash',n:'Schatten-Dash',t:'attack',cost:6,p:1.55,fx:'shadow'},{id:'ambush',n:'Hinterhalt',t:'attack',cost:11,p:2.15,fx:'shadow'},{id:'poison',n:'Giftwolke',t:'dot',cost:8,p:.22,fx:'poison'}]},
+    tank:{name:'Tank',icon:'🛡️',color:'#60a5fa',base:{hp:170,atk:13,def:20,mag:6,heal:5,crit:6,en:35,spd:7},passive:'Schaden -10%',skills:[{id:'taunt',n:'Provozieren',t:'guard',cost:5,p:.25,fx:'shield'},{id:'wall',n:'Schildwall',t:'buffDef',cost:7,p:.35,fx:'shield'},{id:'bash',n:'Schildstoß',t:'attack',cost:8,p:1.35,fx:'slash'}]},
+    musician:{name:'Musiker',icon:'🎵',color:'#f472b6',base:{hp:105,atk:12,def:10,mag:14,heal:14,crit:10,en:46,spd:10},passive:'Team EN +1',skills:[{id:'song',n:'Mutlied',t:'buffAtk',cost:6,p:.2,fx:'music'},{id:'wave',n:'Klangwelle',t:'attack',cost:6,p:1.45,fx:'music'},{id:'melody',n:'Ruhemelodie',t:'heal',cost:8,p:1.0,fx:'heal'}]},
+    cook:{name:'Koch',icon:'🍳',color:'#f59e0b',base:{hp:115,atk:18,def:11,mag:8,heal:15,crit:9,en:40,spd:9},passive:'Nach Kampf Heal',skills:[{id:'pan',n:'Pfannenhieb',t:'attack',cost:5,p:1.4,fx:'slash'},{id:'flame',n:'Flambieren',t:'attack',cost:10,p:1.95,fx:'fire'},{id:'soup',n:'Suppe',t:'heal',cost:8,p:1.2,fx:'heal'}]},
+    beast:{name:'Bestienfreund',icon:'🐾',color:'#22d3ee',base:{hp:111,atk:19,def:10,mag:10,heal:10,crit:13,en:39,spd:11},passive:'Assist +',skills:[{id:'fang',n:'Fanghieb',t:'attack',cost:5,p:1.44,fx:'slash'},{id:'howl',n:'Heulen',t:'dot',cost:8,p:.2,fx:'poison'},{id:'pack',n:'Rudelruf',t:'buffAtk',cost:7,p:.2,fx:'music'}]},
+    rune:{name:'Runenmeister',icon:'📜',color:'#38bdf8',base:{hp:101,atk:15,def:10,mag:22,heal:12,crit:11,en:47,spd:10},passive:'Debuff +',skills:[{id:'break',n:'Bruchrune',t:'attack',cost:7,p:1.55,fx:'holy'},{id:'void',n:'Leerriss',t:'attack',cost:12,p:2.25,fx:'shadow'},{id:'rshield',n:'Runenschild',t:'buffDef',cost:7,p:.24,fx:'shield'}]},
+    cannon:{name:'Kanonier',icon:'💣',color:'#f97316',base:{hp:104,atk:23,def:9,mag:10,heal:8,crit:16,en:36,spd:10},passive:'Kritschaden +',skills:[{id:'shot',n:'Kartätsche',t:'attack',cost:6,p:1.6,fx:'slash'},{id:'bomb',n:'Bombardement',t:'attack',cost:13,p:2.35,fx:'fire'},{id:'smoke',n:'Rauchwand',t:'buffDef',cost:7,p:.18,fx:'shield'}]},
+    nature:{name:'Naturwächter',icon:'🌿',color:'#22c55e',base:{hp:121,atk:16,def:12,mag:14,heal:16,crit:9,en:42,spd:9},passive:'Regen',skills:[{id:'vine',n:'Rankenhieb',t:'attack',cost:6,p:1.4,fx:'nature'},{id:'bloom',n:'Blütensegen',t:'heal',cost:10,p:1.3,fx:'heal'},{id:'bark',n:'Borkenhaut',t:'buffDef',cost:8,p:.3,fx:'shield'}]},
+    dream:{name:'Traumweber',icon:'🌙',color:'#c084fc',base:{hp:94,atk:14,def:8,mag:23,heal:13,crit:15,en:54,spd:12},passive:'Ausweichen +',skills:[{id:'orb',n:'Traum-Orb',t:'attack',cost:7,p:1.62,fx:'shadow'},{id:'night',n:'Sternennacht',t:'buffAtk',cost:11,p:.25,fx:'music'},{id:'mist',n:'Nebel',t:'dot',cost:7,p:.2,fx:'poison'}]}
+  };
+
+  const ITEMS = [
+    {id:'iron_blade',n:'Eisenklinge',rar:'Common',slot:'weapon',p:95,stats:{atk:3},desc:'Einsteigerklinge',vis:'#cbd5e1'},
+    {id:'flame_sword',n:'Flammenschwert',rar:'Epic',slot:'weapon',p:390,stats:{atk:8,crit:4},desc:'Brennt heiß',vis:'#f97316'},
+    {id:'holy_staff',n:'Heiliger Stab',rar:'Legendary',slot:'weapon',p:640,stats:{mag:9,heal:10,en:10},desc:'Leuchtet stark',vis:'#fde68a'},
+    {id:'iron_helm',n:'Eisenhelm',rar:'Common',slot:'helmet',p:80,stats:{def:4,hp:8},desc:'Robust',vis:'#9ca3af'},
+    {id:'shadow_robe',n:'Schattenrobe',rar:'Rare',slot:'chest',p:180,stats:{mag:4,def:3,en:5},desc:'Dunkel',vis:'#4f46e5'},
+    {id:'crystal_armor',n:'Kristallrüstung',rar:'Epic',slot:'chest',p:390,stats:{hp:25,def:9},desc:'Kristallteile',vis:'#38bdf8'},
+    {id:'thorn_gloves',n:'Dornenhandschuhe',rar:'Rare',slot:'gloves',p:170,stats:{atk:3,spd:2},desc:'Naturbonus',vis:'#22c55e'},
+    {id:'swift_boots',n:'Windschuhe',rar:'Rare',slot:'boots',p:170,stats:{spd:5,en:4},desc:'Sehr schnell',vis:'#93c5fd'},
+    {id:'mask_charm',n:'Masken-Amulett',rar:'Legendary',slot:'accessory',p:700,stats:{crit:8,atk:6,hp:20},desc:'Legendär',vis:'#fb7185'},
+    {id:'aegis_shield',n:'Aegis-Siegel',rar:'Epic',slot:'accessory',p:420,stats:{def:6,hp:16},desc:'Schutz',vis:'#60a5fa'},
+    {id:'sage_boots',n:'Weisenschuhe',rar:'Rare',slot:'boots',p:165,stats:{mag:3,spd:3},desc:'Magietempo',vis:'#a78bfa'}
+  ];
+
+  const REGIONS = [
+    {id:'meadow',n:'Sonnenwiese',rec:1,theme:['#7dd3fc','#22c55e','#fde047'],en:['slime','mush','boar'],boss:'mask',story:'Felder voller Schattenmasken.'},
+    {id:'fungi',n:'Pilzwald',rec:4,theme:['#5b21b6','#166534','#a3e635'],en:['mush','harpy','poisoner'],boss:'mask',story:'Sporen und Giftwolken.'},
+    {id:'crystal',n:'Kristallhöhlen',rec:8,theme:['#0ea5e9','#1e293b','#67e8f9'],en:['golem','harpy','crystalbat'],boss:'mask',story:'Blaue Härte und Splitter.'},
+    {id:'storm',n:'Sturmklippen',rec:12,theme:['#94a3b8','#334155','#ffffff'],en:['harpy','knight','stormeye'],boss:'mask',story:'Blitze und Wind.'},
+    {id:'shadow',n:'Schattenburg',rec:16,theme:['#111827','#3f3f46','#ef4444'],en:['knight','mask','reaper'],boss:'king',story:'Finale gegen den Schattenkönig.'}
+  ];
+
+  const ENEMIES = {
+    slime:{n:'Schleim',hp:72,atk:10,def:5,mag:3,crit:2,en:25,boss:false,color:'#22d3ee'},
+    mush:{n:'Pilzmonster',hp:86,atk:13,def:7,mag:5,crit:4,en:30,boss:false,color:'#84cc16'},
+    boar:{n:'Stachelkeiler',hp:98,atk:15,def:8,mag:2,crit:5,en:20,boss:false,color:'#b45309'},
+    poisoner:{n:'Gifthexe',hp:94,atk:16,def:8,mag:9,crit:7,en:38,boss:false,color:'#10b981'},
+    crystalbat:{n:'Kristallfleder',hp:104,atk:18,def:9,mag:10,crit:9,en:42,boss:false,color:'#38bdf8'},
+    stormeye:{n:'Sturmauge',hp:120,atk:23,def:12,mag:13,crit:10,en:44,boss:false,color:'#cbd5e1'},
+    reaper:{n:'Nachtreaper',hp:145,atk:28,def:15,mag:14,crit:12,en:48,boss:false,color:'#6b7280'},
+    harpy:{n:'Windharpyie',hp:112,atk:21,def:9,mag:9,crit:10,en:45,boss:false,color:'#c4b5fd'},
+    golem:{n:'Kristallgolem',hp:132,atk:19,def:14,mag:6,crit:6,en:35,boss:false,color:'#38bdf8'},
+    knight:{n:'Schattenritter',hp:162,atk:25,def:17,mag:10,crit:12,en:50,boss:false,color:'#334155'},
+    mask:{n:'Maskenboss',hp:240,atk:30,def:16,mag:14,crit:12,en:60,boss:true,color:'#ef4444'},
+    king:{n:'Schattenkönig',hp:390,atk:44,def:24,mag:20,crit:18,en:80,boss:true,color:'#7f1d1d'}
+  };
+
+  const xpNeed = (l)=>45 + l*l*15;
+  const roleXpNeed = (l)=>30 + l*24;
+
+  function defaultState(){
+    return {
+      v:SAVE_VERSION, gameVersion:GAME_VERSION, screen:'adventure',
+      playerName:'', gold:140, chapter:1, team:[], inv:['iron_blade','iron_helm'], fav:[],
+      unlocked:['meadow'], progress:Object.fromEntries(REGIONS.map(r=>[r.id,{clears:0,boss:false}])),
+      friendship:{}, shop:[],
+      settings:{animations:true, autosave:true, compact:false, battleSpeed:'normal'},
+      battle:null, msg:'Willkommen in Asterfall!', admin:false
+    };
+  }
+
+  function load(){
+    try{const d=localStorage.getItem(SAVE_KEY);if(d)return JSON.parse(d);}catch{}
+    for(const k of LEGACY_KEYS){try{const d=localStorage.getItem(k);if(d)return JSON.parse(d);}catch{}}
+    return null;
+  }
+  function save(){try{localStorage.setItem(SAVE_KEY,JSON.stringify(S));}catch{}}
+
+  function repairHero(h){
+    const role=ROLES[h.role]||ROLES.sword;
+    const x=Object.assign({id:uid(),name:role.name,role:'sword',level:1,xp:0,roleLevel:1,roleXp:0,hp:role.base.hp,en:role.base.en,equip:{weapon:null,helmet:null,chest:null,gloves:null,boots:null,accessory:null},buffs:[]},h||{});
+    x.level=clamp(+x.level||1,1,MAX_LEVEL); x.roleLevel=clamp(+x.roleLevel||1,1,MAX_LEVEL);
+    x.equip=Object.assign({weapon:null,helmet:null,chest:null,gloves:null,boots:null,accessory:null},x.equip||{});
+    x.buffs=Array.isArray(x.buffs)?x.buffs:[];
+    return recalcHero(x,false);
+  }
+
+  function repair(raw){
+    const b=defaultState(); const m=Object.assign({},b,raw||{});
+    m.v=SAVE_VERSION; m.gameVersion=GAME_VERSION;
+    m.team=Array.isArray(m.team)?m.team.filter(h=>ROLES[h.role]).map(repairHero):[];
+    m.inv=Array.isArray(m.inv)?m.inv.filter(i=>ITEMS.some(x=>x.id===i)):[];
+    m.fav=Array.isArray(m.fav)?m.fav.filter(i=>ITEMS.some(x=>x.id===i)):[];
+    m.unlocked=Array.isArray(m.unlocked)&&m.unlocked.length?m.unlocked.filter(id=>REGIONS.some(r=>r.id===id)):['meadow'];
+    m.progress=(m.progress&&typeof m.progress==='object')?m.progress:{};
+    for(const r of REGIONS){const p=m.progress[r.id]||{};m.progress[r.id]={clears:clamp(+p.clears||0,0,3),boss:!!p.boss};}
+    m.friendship=(m.friendship&&typeof m.friendship==='object')?m.friendship:{};
+    m.shop=Array.isArray(m.shop)&&m.shop.length?m.shop:rollShop(m);
+    m.settings=Object.assign({},b.settings,m.settings||{});
+    return m;
+  }
+
+  let S = repair(load()||defaultState());
+
+  function roleStats(h){
+    const b=ROLES[h.role].base, l=h.level-1, rl=h.roleLevel-1;
+    const s={...b};
+    s.hp+=Math.floor(l*12+rl*6); s.atk+=Math.floor(l*1.8+rl*1.1); s.def+=Math.floor(l*1.4+rl*1.1);
+    s.mag+=Math.floor(l*1.5+rl*1.2); s.heal+=Math.floor(l*1.4+rl*1.2); s.en+=Math.floor(l*2.5+rl*1.5);
+    s.crit+=Math.floor(l*.25); s.spd+=Math.floor(l*.45);
+    for(const slot in h.equip){const id=h.equip[slot];const it=ITEMS.find(i=>i.id===id);if(!it)continue;for(const k in it.stats){s[k]+=it.stats[k];}}
+    return s;
+  }
+
+  function recalcHero(h,preserve=true){
+    const st=roleStats(h); h.maxHp=st.hp; h.maxEn=st.en;
+    if(preserve){h.hp=clamp(+h.hp||st.hp,0,st.hp);h.en=clamp(+h.en||st.en,0,st.en);} else {h.hp=st.hp;h.en=st.en;}
+    return h;
+  }
+
+  function addHero(name, role){
+    if(S.team.length>=4||!ROLES[role])return;
+    S.team.push(recalcHero({id:uid(),name:(name||ROLES[role].name).slice(0,20),role,level:1,xp:0,roleLevel:1,roleXp:0,hp:1,en:1,equip:{weapon:null,helmet:null,chest:null,gloves:null,boots:null,accessory:null},buffs:[]},false));
+  }
+
+  const bondKey=(a,b)=>[a,b].sort().join('_');
+  const bondLevel=(v)=>clamp(Math.floor(v/10),0,10);
+
+  function addBond(a,b,n=1){const k=bondKey(a,b);S.friendship[k]=clamp((S.friendship[k]||0)+n,0,100)}
+
+  function rollShop(state=S){
+    const depth=Object.values(state.progress).filter(p=>p.boss).length;
+    const pickRar=()=>{const r=Math.random()*100-depth*2;return r<55?'Common':r<83?'Rare':r<96?'Epic':'Legendary';};
+    return Array.from({length:8},()=>{const rr=pickRar();const p=ITEMS.filter(i=>i.rar===rr);return p[Math.floor(Math.random()*p.length)].id;});
+  }
+
+  function spawnEnemy(id){const t=ENEMIES[id];return{id:uid(),type:id,name:t.n,boss:t.boss,hp:t.hp,maxHp:t.hp,en:t.en,stats:{hp:t.hp,atk:t.atk,def:t.def,mag:t.mag,heal:0,crit:t.crit,en:t.en,spd:7},buffs:[]};}
+
+  function startBattle(regionId,boss=false){
+    const reg=REGIONS.find(r=>r.id===regionId); if(!reg||!S.unlocked.includes(regionId)||!S.team.length)return;
+    const prog=S.progress[regionId]||{clears:0,boss:false}; if(boss&&prog.clears<3){S.msg='Erst 3 normale Kämpfe gewinnen.';return;}
+    const enemyIds=boss?[reg.boss]:[reg.en[Math.floor(Math.random()*reg.en.length)],reg.en[Math.floor(Math.random()*reg.en.length)],reg.en[Math.floor(Math.random()*reg.en.length)]];
+    S.battle={regionId,boss,heroes:S.team.map(h=>({...h,buffs:[],guard:false})),enemies:enemyIds.map(spawnEnemy),log:[`${reg.n}: Kampf beginnt!`],popups:[],selectedHeroId:S.team[0]?.id||null,victory:false,defeat:false};
+    S.screen='adventure';
+  }
+
+  function damage(att,def,bonusCrit=0){const crit=Math.random()*100<(att.crit+bonusCrit);let v=Math.floor(att.atk*1.15+att.mag*.45-def.def*.55+Math.random()*6);if(crit)v=Math.floor(v*1.48);return{v:Math.max(1,v),crit};}
+
+  function friendAssist(hero,target){
+    const b=S.battle; if(!b)return;
+    const ally=b.heroes.find(x=>x.id!==hero.id&&x.hp>0); if(!ally||target.hp<=0)return;
+    const lvl=bondLevel(S.friendship[bondKey(hero.id,ally.id)]||0); const chance=.05+lvl*.02;
+    if(Math.random()>chance)return;
+    const st=roleStats(ally); const hit=damage(st,target.stats,st.crit);
+    target.hp=clamp(target.hp-hit.v,0,target.maxHp);
+    b.popups.push({x:74,y:40,v:hit.v,crit:hit.crit,pos:false});
+    b.log.unshift(`Freundschaft L${lvl}: ${ally.name} assistiert! (${hit.v})`);
+    addBond(hero.id,ally.id,1);
+  }
+
+  function doSkill(skillId,targetId){
+    const b=S.battle;if(!b||b.victory||b.defeat)return;
+    const hero=b.heroes.find(h=>h.id===b.selectedHeroId&&h.hp>0)||b.heroes.find(h=>h.hp>0); if(!hero)return;
+    const role=ROLES[hero.role]; const sk=role.skills.find(s=>s.id===skillId); if(!sk)return;
+    const hs=roleStats(hero); if(hero.en<sk.cost){b.log.unshift('Zu wenig Energie');render();return;}
+    hero.en-=sk.cost;
+    const enemy=b.enemies.find(e=>e.id===targetId&&e.hp>0)||b.enemies.find(e=>e.hp>0);
+    const ally=b.heroes.find(h=>h.id===targetId&&h.hp>0)||b.heroes.find(h=>h.hp>0);
+    if(sk.t==='attack'&&enemy){const hit=damage(hs,enemy.stats,hs.crit);enemy.hp=clamp(enemy.hp-hit.v,0,enemy.maxHp);b.popups.push({x:74,y:40,v:hit.v,crit:hit.crit,pos:false});b.log.unshift(`${hero.name} nutzt ${sk.n} (${hit.v}${hit.crit?' KRIT':''})`);friendAssist(hero,enemy)}
+    if(sk.t==='heal'&&ally){const heal=Math.floor(hs.heal*sk.p+hs.mag*.4+12);ally.hp=clamp(ally.hp+heal,0,roleStats(ally).hp);b.popups.push({x:22,y:72,v:heal,crit:false,pos:true});b.log.unshift(`${hero.name} heilt ${ally.name} +${heal}`)}
+    if(sk.t==='energy'){const gain=Math.floor(roleStats(hero).en*sk.p);hero.en=clamp(hero.en+gain,0,roleStats(hero).en);b.log.unshift(`${hero.name} gewinnt ${gain} EN`) }
+    if(sk.t==='buffDef'){hero.buffs.push({t:'def',v:Math.floor(hs.def*sk.p),dur:2});b.log.unshift(`${hero.name}: DEF Buff`) }
+    if(sk.t==='buffAtk'){hero.buffs.push({t:'atk',v:Math.floor(hs.atk*sk.p),dur:2});b.log.unshift(`${hero.name}: ATK Buff`) }
+    if(sk.t==='guard'){hero.guard=true;b.log.unshift(`${hero.name} schützt das Team`) }
+    if(sk.t==='dot'&&enemy){enemy.buffs.push({t:'dot',v:Math.floor(enemy.maxHp*sk.p),dur:3});b.log.unshift(`${enemy.name} erleidet DOT`) }
+    enemyPhase();
+  }
+
+  function enemyPhase(){
+    const b=S.battle;if(!b)return;
+    for(const e of b.enemies){
+      for(const bf of e.buffs){bf.dur--;if(bf.t==='dot'&&e.hp>0){e.hp=clamp(e.hp-bf.v,0,e.maxHp);b.popups.push({x:74,y:40,v:bf.v,crit:false,pos:false});}}
+      e.buffs=e.buffs.filter(x=>x.dur>0);
+    }
+    if(b.enemies.every(e=>e.hp<=0))return endBattle(true);
+
+    const aliveHeroes=b.heroes.filter(h=>h.hp>0);
+    for(const e of b.enemies.filter(x=>x.hp>0)){
+      if(!aliveHeroes.length)break;
+      const tank=aliveHeroes.find(h=>h.guard);
+      const target=tank||aliveHeroes[Math.floor(Math.random()*aliveHeroes.length)];
+      const ts=roleStats(target); const hit=damage(e.stats,ts,0);
+      target.hp=clamp(target.hp-hit.v,0,ts.hp);
+      b.popups.push({x:22,y:72,v:hit.v,crit:hit.crit,pos:false});
+      b.log.unshift(`${e.name} trifft ${target.name} (${hit.v})`);
+    }
+    for(const h of b.heroes){
+      h.guard=false;
+      const st=roleStats(h); h.en=clamp(h.en+2,0,st.en);
+      for(const bf of h.buffs)bf.dur--; h.buffs=h.buffs.filter(x=>x.dur>0);
+    }
+    if(b.heroes.every(h=>h.hp<=0))return endBattle(false);
+    render();
+  }
+
+  function endBattle(win){
+    const b=S.battle;if(!b)return;
+    const reg=REGIONS.find(r=>r.id===b.regionId)||REGIONS[0];
+    if(win){
+      const xp=b.boss?85:35, gold=b.boss?145:52; S.gold+=gold;
+      for(const h of S.team){
+        const bh=b.heroes.find(x=>x.id===h.id); if(!bh)continue;
+        h.hp=Math.max(1,bh.hp); h.en=Math.max(5,bh.en);
+        h.xp+=xp; h.roleXp+=Math.floor(xp*.72);
+        while(h.level<MAX_LEVEL&&h.xp>=xpNeed(h.level)){h.xp-=xpNeed(h.level);h.level++;}
+        while(h.roleLevel<MAX_LEVEL&&h.roleXp>=roleXpNeed(h.roleLevel)){h.roleXp-=roleXpNeed(h.roleLevel);h.roleLevel++;}
+        recalcHero(h,true);
+      }
+      const p=S.progress[b.regionId];
+      if(b.boss){p.boss=true;const idx=REGIONS.findIndex(r=>r.id===b.regionId);const next=REGIONS[idx+1];if(next&&!S.unlocked.includes(next.id)){S.unlocked.push(next.id);S.chapter=Math.max(S.chapter,idx+2);}}
+      else p.clears=clamp(p.clears+1,0,3);
+      if(Math.random()<(b.boss?.95:.45)){const pool=ITEMS.filter(i=>reg.id==='shadow'?true:i.rar!=='Legendary');S.inv.push(pool[Math.floor(Math.random()*pool.length)].id)}
+      if(S.team.length>1){for(let i=0;i<2;i++){const a=S.team[Math.floor(Math.random()*S.team.length)];const o=S.team.find(x=>x.id!==a.id);if(a&&o)addBond(a.id,o.id,2);}}
+      S.msg=`Sieg! +${xp} XP +${gold} Gold`;
+    }else{
+      for(const h of S.team){const st=roleStats(h);h.hp=Math.max(1,Math.floor(st.hp*.35));h.en=Math.max(5,Math.floor(st.en*.35));}
+      S.msg='Niederlage. Rückzug zur Karte.';
+    }
+    S.battle=null; if(S.settings.autosave)save(); render();
+  }
+
+  function score(item){const s=item.stats;return (s.atk||0)*2+(s.def||0)*2+(s.hp||0)*.2+(s.mag||0)*1.6+(s.heal||0)*1.5+(s.crit||0)*1.8+(s.en||0)*.8+(s.spd||0)*1.1;}
+  function autoEquip(hero){for(const slot of ['weapon','helmet','chest','gloves','boots','accessory']){const c=S.inv.map(i=>ITEMS.find(x=>x.id===i)).filter(i=>i&&i.slot===slot).sort((a,b)=>score(b)-score(a))[0];if(c){if(hero.equip[slot])S.inv.push(hero.equip[slot]);hero.equip[slot]=c.id;const ix=S.inv.indexOf(c.id);if(ix>=0)S.inv.splice(ix,1);}}recalcHero(hero,true);}
+
+  const app=document.getElementById('app');
+  const fmt=(n)=>S.settings.compact&&n>=1000?(n/1000).toFixed(1)+'k':''+n;
+
+  function topbar(){
+    return `<div class='top'>
+      <div class='row between'>
+        <div><b>Asterfall Grand</b> <span class='small'>${GAME_VERSION}</span></div>
+        <div class='row'><span class='chip'>👤 ${S.playerName||'Spieler'}</span><span class='chip'>💰 ${fmt(S.gold)}</span><span class='chip'>📖 Kapitel ${S.chapter}</span></div>
+      </div>
+      <div class='tabs'>${['adventure','map','team','inventory','shop','friendship','roles','guide','settings','admin'].map(t=>`<button data-act='goto' data-id='${t}'>${({adventure:'Adventure',map:'Weltkarte',team:'Team',inventory:'Inventar',shop:'Shop',friendship:'Freundschaft',roles:'Rollen',guide:'Guide',settings:'Settings',admin:'Admin'})[t]}</button>`).join('')}</div>
+    </div>`;
+  }
+
+  function sceneCanvas(){
+    return `<div class='canvasWrap'><canvas id='scene' width='1200' height='500'></canvas><div id='fx' class='fx'></div></div>`;
+  }
+
+  function renderAdventure(){
+    const b=S.battle;
+    return `<div class='panel'><div class='title'>Adventure Gameplay</div><div class='small'>${S.msg}</div>${sceneCanvas()}${b?`<div class='grid' style='margin-top:10px'>
+      <div class='card'><b>Teamstatus</b>${b.heroes.map(h=>{const st=roleStats(h);return `<div>${ROLES[h.role].icon} ${h.name} HP ${h.hp}/${st.hp}<div class='bar'><div class='fill' style='width:${(h.hp/st.hp)*100}%'></div></div>EN ${h.en}/${st.en}<div class='bar'><div class='fill en' style='width:${(h.en/st.en)*100}%'></div></div></div>`}).join('')}</div>
+      <div class='card'><b>Aktionen</b>${(()=>{const hero=b.heroes.find(x=>x.id===b.selectedHeroId&&x.hp>0)||b.heroes.find(x=>x.hp>0)||b.heroes[0];return `<select id='heroSel'>${b.heroes.filter(x=>x.hp>0).map(x=>`<option value='${x.id}' ${x.id===hero.id?'selected':''}>${x.name}</option>`).join('')}</select><select id='enemySel'>${b.enemies.filter(x=>x.hp>0).map(x=>`<option value='${x.id}'>${x.name}</option>`).join('')}</select>${ROLES[hero.role].skills.map(s=>`<button class='btn' data-act='skill' data-s='${s.id}' ${hero.en<s.cost?'disabled':''}>${s.n} (${s.cost} EN)</button>`).join('')}`})()}<button class='btn danger' data-act='flee'>Flucht</button></div>
+      <details class='card' open><summary>Kampf-Log</summary>${b.log.slice(0,16).map(x=>`<div>${x}</div>`).join('')}</details>
+    </div>`:`<div class='small' style='margin-top:8px'>Starte auf der Weltkarte einen Kampf.</div>`}</div>`;
+  }
+
+  function renderMap(){
+    return `<div class='panel'><div class='title'>Weltkarte</div><svg class='mapSvg' viewBox='0 0 960 260'>
+      ${REGIONS.map((_,i)=>i<REGIONS.length-1?`<line x1='${100+i*190}' y1='120' x2='${100+(i+1)*190}' y2='120' stroke='#64748b' stroke-width='8'/>`:'' ).join('')}
+      ${REGIONS.map((r,i)=>{const x=100+i*190,u=S.unlocked.includes(r.id),p=S.progress[r.id]||{clears:0,boss:false};return `<g><circle cx='${x}' cy='120' r='${p.boss?36:30}' fill='${u?'#0ea5e9':'#1f2937'}' stroke='${u?'#67e8f9':'#475569'}' stroke-width='4'/><text x='${x}' y='98' text-anchor='middle' fill='#f8fafc' font-size='12'>${r.n}</text><text x='${x}' y='124' text-anchor='middle' fill='#e2e8f0' font-size='12'>${u?`${p.clears}/3`:'🔒'}</text></g>`}).join('')}
+    </svg><div class='grid' style='margin-top:10px'>${REGIONS.map(r=>{const u=S.unlocked.includes(r.id),p=S.progress[r.id]||{clears:0,boss:false};return `<div class='card'><b>${r.n}</b><div class='small'>Empf. Lv ${r.rec} · ${r.story}</div><button class='btn primary' data-act='fight' data-id='${r.id}' ${u?'':'disabled'}>Normaler Kampf</button><button class='btn warn' data-act='boss' data-id='${r.id}' ${u&&p.clears>=3?'':'disabled'}>Bosskampf</button></div>`}).join('')}</div></div>`;
+  }
+
+  function renderTeam(){
+    return `<div class='panel'><div class='title'>Team & Progression</div><div class='row'><input id='playerName' value='${S.playerName||''}' placeholder='Spielername'><input id='heroName' placeholder='Heldenname'><select id='heroRole'>${Object.entries(ROLES).map(([k,v])=>`<option value='${k}'>${v.icon} ${v.name}</option>`).join('')}</select><button class='btn primary' data-act='addHero'>Held +</button></div>
+    <div class='grid' style='margin-top:10px'>${S.team.map(h=>{const st=roleStats(h);return `<div class='card'><div class='heroHeader'><span class='icon' style='background:${ROLES[h.role].color}33'>${ROLES[h.role].icon}</span>${h.name}</div><div class='small'>${ROLES[h.role].name} Lv ${h.level} / RLv ${h.roleLevel}</div><div>HP ${h.hp}/${st.hp}</div><div class='bar'><div class='fill' style='width:${(h.hp/st.hp)*100}%'></div></div><div>EN ${h.en}/${st.en}</div><div class='bar'><div class='fill en' style='width:${(h.en/st.en)*100}%'></div></div><div>XP ${h.xp}/${xpNeed(h.level)}</div><div class='bar'><div class='fill xp' style='width:${(h.xp/xpNeed(h.level))*100}%'></div></div><select data-equip='${h.id}'><option value=''>Item aus Inventar anlegen</option>${S.inv.map(id=>{const i=ITEMS.find(x=>x.id===id);if(!i)return'';return `<option value='${id}'>${i.n} (${i.slot}/${i.rar})</option>`}).join('')}</select><button class='btn' data-act='autoEq' data-id='${h.id}'>Beste Ausrüstung</button></div>`}).join('')||'<div class="small">Noch kein Team.</div>'}</div></div>`;
+  }
+
+  function renderInventory(){
+    const inv=S.inv.map(id=>ITEMS.find(i=>i.id===id)).filter(Boolean);
+    return `<div class='panel'><div class='title'>Inventar & Items</div><div class='grid'>${inv.map(i=>`<div class='card'><b>${i.n}</b><div class='small'>${i.rar} · ${i.slot} · ${i.desc}</div><div class='small'>${Object.entries(i.stats).map(([k,v])=>`${k}+${v}`).join(', ')}</div><div class='row'><button class='btn' data-act='fav' data-id='${i.id}'>${S.fav.includes(i.id)?'Unfav':'Fav'}</button><button class='btn warn' data-act='sell' data-id='${i.id}' ${S.fav.includes(i.id)?'disabled':''}>Verkaufen</button></div></div>`).join('')||'<div>Leer</div>'}</div></div>`;
+  }
+
+  function renderShop(){
+    return `<div class='panel'><div class='title'>Shop</div><div class='small'>Gold: ${fmt(S.gold)}</div><button class='btn warn' data-act='reroll'>Angebot neu würfeln (35)</button><div class='grid' style='margin-top:10px'>${S.shop.map(id=>{const i=ITEMS.find(x=>x.id===id);if(!i)return'';return `<div class='card'><b>${i.n}</b><div class='small'>${i.rar} · ${i.slot}</div><div class='small'>${i.desc}</div><div class='small'>${Object.entries(i.stats).map(([k,v])=>`${k}+${v}`).join(', ')}</div><button class='btn primary' data-act='buy' data-id='${i.id}' ${S.gold>=i.p?'':'disabled'}>Kaufen (${i.p})</button></div>`}).join('')}</div></div>`;
+  }
+
+  function renderFriendship(){
+    const pairs=S.team.flatMap((a,i)=>S.team.slice(i+1).map(b=>({a,b,v:S.friendship[bondKey(a.id,b.id)]||0,l:bondLevel(S.friendship[bondKey(a.id,b.id)]||0)})));
+    return `<div class='panel'><div class='title'>Freundschaftssystem</div><div class='small'>Lv2 Assist · Lv4 Bonus-Schaden · Lv6 Schutzhilfe · Lv8 Doppelangriff · Lv10 Team-Move</div><div class='grid' style='margin-top:10px'>${pairs.map(p=>`<div class='card'><b>${p.a.name} ♥ ${p.b.name}</b><div class='small'>${p.v}/100 (Lv ${p.l})</div><div class='bar'><div class='fill fr' style='width:${p.v}%'></div></div></div>`).join('')||'<div class="small">Mindestens 2 Helden benötigt.</div>'}</div></div>`;
+  }
+
+  function renderRoles(){
+    return `<div class='panel'><div class='title'>Rollen-Lexikon</div><div class='grid'>${Object.entries(ROLES).map(([k,r])=>`<div class='card'><div class='heroHeader'><span class='icon' style='background:${r.color}33'>${r.icon}</span>${r.name}</div><div class='small'>Passiv: ${r.passive}</div><div class='small'>Skills: ${r.skills.map(s=>`${s.n} (${s.cost})`).join(' · ')}</div><button class='btn' data-act='quickAdd' data-id='${k}'>Als Held hinzufügen</button></div>`).join('')}</div></div>`;
+  }
+
+  function renderGuide(){
+    return `<div class='panel'><div class='title'>Guide</div><div class='grid'>
+      <div class='card'><b>Kampf</b><div class='small'>Wähle Hero, Skill und Ziel. Gegner greifen danach zurück. Energie regeneriert jede Runde.</div></div>
+      <div class='card'><b>Progression</b><div class='small'>Level + Rollenlevel erhöhen Stats. Bosskämpfe geben bessere Drops.</div></div>
+      <div class='card'><b>Ausrüstung</b><div class='small'>6 Slots: weapon/helmet/chest/gloves/boots/accessory, sichtbar in der Szene.</div></div>
+      <div class='card'><b>Map</b><div class='small'>3 normale Kämpfe -> Boss. Boss schaltet nächstes Gebiet frei.</div></div>
+      <div class='card'><b>Save</b><div class='small'>Auto-Save nach Kämpfen/Käufen. Export/Import in Settings möglich.</div></div>
+    </div></div>`;
+  }
+
+  function renderSettings(){
+    return `<div class='panel'><div class='title'>Einstellungen</div><div class='row'>
+      <button class='btn' data-act='toggleAnim'>Animationen: ${S.settings.animations?'AN':'AUS'}</button>
+      <button class='btn' data-act='toggleAuto'>AutoSave: ${S.settings.autosave?'AN':'AUS'}</button>
+      <button class='btn' data-act='toggleCompact'>Kompakt: ${S.settings.compact?'AN':'AUS'}</button>
+    </div><div class='row'><button class='btn ok' data-act='save'>Speichern</button><button class='btn' data-act='export'>Export/Import</button><button class='btn danger' data-act='reset'>Reset</button></div></div>`;
+  }
+
+  function renderAdmin(){
+    return `<div class='panel'><div class='title'>Admin/Test lokal</div><input id='adminCode' placeholder='Code Adminoleg'><div class='row'><button class='btn' data-act='openAdmin'>Öffnen</button><button class='btn' data-act='debug'>Debug</button></div>${S.admin?`<div class='grid'><button class='btn' data-act='aGold'>+1000 Gold</button><button class='btn' data-act='aLegendary'>Random Legendary</button><button class='btn' data-act='aUnlock'>Alle Gebiete</button><button class='btn' data-act='aLevel'>Team +1</button><button class='btn' data-act='aFight'>Testkampf</button><button class='btn' data-act='aRepair'>Save reparieren</button></div>`:'<div class="small">Nur lokal. Kein Online-System.</div>'}</div>`;
+  }
+
+  function render(){
+    const views={adventure:renderAdventure,map:renderMap,team:renderTeam,inventory:renderInventory,shop:renderShop,friendship:renderFriendship,roles:renderRoles,guide:renderGuide,settings:renderSettings,admin:renderAdmin};
+    app.innerHTML=topbar()+(views[S.screen]||renderAdventure)();
+    if(S.screen==='adventure')drawScene();
+  }
+
+  function drawScene(){
+    const c=document.getElementById('scene'); if(!c)return; const ctx=c.getContext('2d');
+    const region=REGIONS.find(r=>r.id==(S.battle?.regionId||S.unlocked[0]))||REGIONS[0];
+    const [sky,ground,fx]=region.theme; const w=c.width,h=c.height;
+    const g=ctx.createLinearGradient(0,0,0,h); g.addColorStop(0,sky); g.addColorStop(1,ground); ctx.fillStyle=g; ctx.fillRect(0,0,w,h);
+    ctx.fillStyle='rgba(255,255,255,.16)'; ctx.fillRect(0,h*.62,w,h*.38);
+    ctx.strokeStyle=fx; ctx.globalAlpha=.35;
+    for(let i=0;i<6;i++){ctx.beginPath();ctx.arc(w*(.08+i*.18),h*.56,24+Math.sin((Date.now()/110+i)*.7)*8,0,Math.PI*2);ctx.stroke();}
+    ctx.globalAlpha=1;
+
+    const b=S.battle;
+    if(!b){ctx.fillStyle='#111827';ctx.font='bold 24px sans-serif';ctx.fillText('Adventure-Szene: Starte einen Kampf über die Weltkarte',30,h*.84);return;}
+
+    b.heroes.forEach((p,i)=>{
+      const role=ROLES[p.role],st=roleStats(p),x=w*.12+i*125,y=h*.78-i*20;
+      ctx.fillStyle=role.color;ctx.fillRect(x-20,y-35,40,50);
+      ctx.fillStyle='#f8fafc';ctx.beginPath();ctx.arc(x,y-50,14,0,Math.PI*2);ctx.fill();
+      if(p.equip.weapon){ctx.fillStyle='#f59e0b';ctx.fillRect(x+20,y-15,20,5);} if(p.equip.helmet){ctx.fillStyle='#9ca3af';ctx.fillRect(x-13,y-60,26,7);} if(p.equip.accessory){ctx.strokeStyle='#fde68a';ctx.beginPath();ctx.arc(x,y-50,18,0,Math.PI*2);ctx.stroke();}
+      ctx.fillStyle='#dbeafe';ctx.fillText(p.name,x-25,y+45);ctx.fillStyle='#22c55e';ctx.fillRect(x-24,y+50,(p.hp/st.hp)*48,5);
+    });
+
+    b.enemies.forEach((e,i)=>{
+      const x=w*.70+i*135,y=h*.42+i*24,size=e.boss?72:52;
+      ctx.fillStyle=ENEMIES[e.type]?.color||'#ef4444';
+      ctx.beginPath();ctx.roundRect(x-size/2,y-size/2,size,size,12);ctx.fill();
+      ctx.fillStyle='#111827';ctx.fillRect(x-14,y-9,28,9);
+      ctx.fillStyle='#ef4444';ctx.fillRect(x-size/2,y+size/2+12,(e.hp/e.maxHp)*size,6);
+      ctx.fillStyle='#e2e8f0';ctx.fillText(e.name,x-size/2,y+size/2+30);
+    });
+
+    const fxBox=document.getElementById('fx'); fxBox.innerHTML='';
+    b.popups.splice(0).forEach(p=>{const el=document.createElement('div');el.className='popup';el.style.left=p.x+'%';el.style.top=p.y+'%';el.style.color=p.pos?'#22c55e':p.crit?'#fde047':'#fca5a5';el.textContent=(p.pos?'+':'-')+p.v;fxBox.appendChild(el);setTimeout(()=>el.remove(),900);});
+  }
+
+  app.addEventListener('change', (e)=>{
+    const t=e.target;
+    if(t.id==='heroSel'&&S.battle){S.battle.selectedHeroId=t.value;render();}
+    if(t.matches('select[data-equip]')){
+      const hero=S.team.find(h=>h.id===t.dataset.equip),item=ITEMS.find(i=>i.id===t.value);
+      if(hero&&item){if(hero.equip[item.slot])S.inv.push(hero.equip[item.slot]);hero.equip[item.slot]=item.id;const ix=S.inv.indexOf(item.id);if(ix>=0)S.inv.splice(ix,1);recalcHero(hero,true);if(S.settings.autosave)save();render();}
+    }
+  });
+
+  app.addEventListener('click', (e)=>{
+    const b=e.target.closest('button[data-act]'); if(!b)return;
+    const act=b.dataset.act,id=b.dataset.id;
+    try{
+      if(act==='goto')S.screen=id;
+      if(act==='fight')startBattle(id,false);
+      if(act==='boss')startBattle(id,true);
+      if(act==='flee')endBattle(false);
+      if(act==='skill'){const target=document.getElementById('enemySel')?.value;doSkill(b.dataset.s,target);}
+
+      if(act==='addHero'){const pn=document.getElementById('playerName')?.value||S.playerName;const hn=document.getElementById('heroName')?.value||'';const role=document.getElementById('heroRole')?.value||'sword';if(pn.trim())S.playerName=pn.trim();addHero(hn,role);}
+      if(act==='quickAdd')addHero('',id);
+      if(act==='autoEq'){const h=S.team.find(x=>x.id===id);if(h)autoEquip(h);}
+
+      if(act==='buy'){const it=ITEMS.find(i=>i.id===id);if(it&&S.gold>=it.p){S.gold-=it.p;S.inv.push(it.id);S.msg=`Gekauft: ${it.n}`;}else S.msg='Zu wenig Gold';}
+      if(act==='reroll'){if(S.gold>=35){S.gold-=35;S.shop=rollShop();}else S.msg='Zu wenig Gold für Reroll';}
+      if(act==='sell'){const it=ITEMS.find(i=>i.id===id);const ix=S.inv.indexOf(id);if(it&&ix>=0){S.inv.splice(ix,1);S.gold+=Math.floor(it.p*.45);} }
+      if(act==='fav'){S.fav=S.fav.includes(id)?S.fav.filter(x=>x!==id):[...S.fav,id];}
+
+      if(act==='toggleAnim')S.settings.animations=!S.settings.animations;
+      if(act==='toggleAuto')S.settings.autosave=!S.settings.autosave;
+      if(act==='toggleCompact')S.settings.compact=!S.settings.compact;
+      if(act==='save'){save();S.msg='Gespeichert';}
+      if(act==='export'){const raw=prompt('Save Export/Import',JSON.stringify(S));if(raw){try{S=repair(JSON.parse(raw));S.msg='Import ok';}catch{S.msg='Import fehlgeschlagen';}}}
+      if(act==='reset'){if(confirm('Wirklich alles resetten?')){localStorage.removeItem(SAVE_KEY);S=defaultState();}}
+
+      if(act==='openAdmin'){S.admin=(document.getElementById('adminCode')?.value||'')==='Adminoleg';}
+      if(act==='aGold'&&S.admin)S.gold+=1000;
+      if(act==='aLegendary'&&S.admin){const l=ITEMS.filter(i=>i.rar==='Legendary');S.inv.push(l[Math.floor(Math.random()*l.length)].id);}
+      if(act==='aUnlock'&&S.admin){S.unlocked=REGIONS.map(r=>r.id);for(const r of REGIONS){S.progress[r.id]={clears:3,boss:S.progress[r.id]?.boss||false};}}
+      if(act==='aLevel'&&S.admin){S.team.forEach(h=>{h.level=clamp(h.level+1,1,MAX_LEVEL);h.roleLevel=clamp(h.roleLevel+1,1,MAX_LEVEL);recalcHero(h,false);});}
+      if(act==='aFight'&&S.admin)startBattle(S.unlocked[0],false);
+      if(act==='aRepair'&&S.admin)S=repair(S);
+      if(act==='debug')alert(JSON.stringify({screen:S.screen,gold:S.gold,team:S.team.length,unlocked:S.unlocked,msg:S.msg},null,2));
+
+      if(S.settings.autosave)save();
+      render();
+    }catch{
+      S=repair(S); S.msg='Fehler abgefangen und Save repariert.'; save(); render();
+    }
+  });
+
+  setInterval(()=>{if(S.screen==='adventure'&&S.settings.animations)drawScene();},120);
+  render();
+})();
+</script>
+</body>
+</html>
